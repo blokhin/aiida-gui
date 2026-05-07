@@ -1,25 +1,19 @@
-
 .sidebar {
-  width: 50px; /* Initial width */
+  width: 160px;
   height: 100vh;
   background-color: #333;
   padding-top: 20px;
   position: fixed;
-  transition: width 0.3s;
   overflow: hidden;
 }
 
-.sidebar:hover {
-  width: 200px; /* Expanded width */
-}
-
 .logo-container {
-  width: 50px; /* Logo container width */
+  width: 160px;
   text-align: center;
 }
 
 .sidebar img {
-  width: 30px; /* Adjust as per logo's dimensions */
+  width: 30px;
   cursor: pointer;
 }
 
@@ -31,9 +25,6 @@
 
 .sidebar nav ul li {
   padding: 10px;
-}
-
-.sidebar:hover nav ul li {
   opacity: 1;
 }
 
@@ -43,22 +34,15 @@
 }
 
 .content {
-  margin-left: 50px; /* Match the initial width of the sidebar */
+  margin-left: 160px;
   padding: 20px;
-  transition: margin-left 0.3s;
-  overflow-x: auto;  /* allow horizontal scroll on very wide tables */
+  overflow-x: auto;
 }
 
 .content > * {
   flex: 1;
   min-height: 0;
 }
-
-.sidebar:hover ~ .content {
-  margin-left: 200px; /* Match the expanded width of the sidebar */
-}
-
-/* ... existing styles ... */
 
 .sidebar ul li a {
   display: flex;
@@ -69,14 +53,12 @@
 
 .sidebar ul li a span {
   margin-left: 10px;
-  display: none; /* Hide text labels by default */
+  display: inline;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.sidebar:hover ul li a span {
-  display: inline; /* Show text labels on hover */
-}
-
-/* Icon styles */
 .sidebar nav ul li a .fa-icon {
-  min-width: 20px; /* Ensure icons have space */
+  min-width: 20px;
 }

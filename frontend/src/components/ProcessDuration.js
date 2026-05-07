@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from 'react';
 import Timeline from 'react-calendar-timeline';
-import 'react-calendar-timeline/lib/Timeline.css';
-import moment from 'moment';
+import 'react-calendar-timeline/dist/style.css';
+import dayjs from 'dayjs';
+import minMax from 'dayjs/plugin/minMax';
+
+dayjs.extend(minMax);
 
 const NodeDurationGraph = ({ id }) => {
     const [processesInfo, setProcessesInfo] = useState({});
@@ -43,8 +46,8 @@ const NodeDurationGraph = ({ id }) => {
                 id: idx,
                 group: idx,
                 title: key,
-                start_time: ctime ? moment(ctime) : null,
-                end_time: mtime ? moment(mtime) : null
+                start_time: ctime ? dayjs(ctime) : null,
+                end_time: mtime ? dayjs(mtime) : null
             }));
 
             setGroups(newGroups);
@@ -54,14 +57,14 @@ const NodeDurationGraph = ({ id }) => {
                 const validStartTimes = newItems.map(item => item.start_time).filter(time => time);
                 const validEndTimes = newItems.map(item => item.end_time).filter(time => time);
                 if (validStartTimes.length && validEndTimes.length) {
-                    setTimeStart(moment.min(validStartTimes).valueOf());
-                    setTimeEnd(moment.max(validEndTimes).valueOf());
+                    setTimeStart(dayjs.min(validStartTimes).valueOf());
+                    setTimeEnd(dayjs.max(validEndTimes).valueOf());
                 }
                 else {
                     // use the current time as the start time
-                    setTimeStart(moment().valueOf());
+                    setTimeStart(dayjs().valueOf());
                     // use the current time + 1 hour as the end time
-                    setTimeEnd(moment().add(1, 'hour').valueOf());
+                    setTimeEnd(dayjs().add(1, 'hour').valueOf());
                 }
                 setInitialLoad(false);
             }

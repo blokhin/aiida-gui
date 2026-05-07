@@ -16,13 +16,14 @@ import { IconButton, Tooltip } from '@mui/material';
 import { ConfirmDeleteModal } from './Modals';
 import { Delete } from '@mui/icons-material';
 
+const PAGE_SIZES = [15, 30, 100];
+
 /* --------- MUI DataGrid ↔︎ MUI Pagination bridge --------- */
 function MuiFooter() {
   const apiRef  = useGridApiContext();
   const page    = useGridSelector(apiRef, gridPageSelector);
   const count   = useGridSelector(apiRef, gridPageCountSelector);
   const pageSize= useGridSelector(apiRef, gridPageSizeSelector);
-  const pageSizes = [15, 30, 100];
 
   return (
     <Box sx={{ display:'flex', alignItems:'center', p:1, gap:1 }}>
@@ -33,7 +34,7 @@ function MuiFooter() {
         onChange={e => apiRef.current.setPageSize(Number(e.target.value))}
         sx={{ minWidth:80 }}
       >
-        {pageSizes.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
+        {PAGE_SIZES.map(s => <MenuItem key={s} value={s}>{s}</MenuItem>)}
       </Select>
       <Pagination
         page={page + 1} count={count}
@@ -58,6 +59,7 @@ export default function NodeTable({
   const {
     rows, rowCount,
     pagination, setPagination,
+    density, setDensity,
     columnVisibilityModel, setColumnVisibilityModel,
     sortModel, setSortModel,
     filterModel, setFilter,
@@ -198,7 +200,7 @@ export default function NodeTable({
         paginationModel={pagination} onPaginationModelChange={setPagination}
         sortModel={sortModel}         onSortModelChange={setSortModel}
         filterModel={filterModel}     onFilterModelChange={setFilter}
-        pageSizeOptions={[15, 30, 50]}
+        pageSizeOptions={PAGE_SIZES}
 
         /* columns */
         columns={columns}
@@ -211,6 +213,8 @@ export default function NodeTable({
         onProcessRowUpdateError={e => toast.error(e.message)}
 
         /* cosmetics */
+        density={density}
+        onDensityChange={setDensity}
         sortingOrder={['desc','asc']}
         slots={{ pagination: MuiFooter, toolbar: GridToolbar }}
         slotProps={{ toolbar:{ showQuickFilter:true, quickFilterProps:{ debounceMs:500 }}}}
