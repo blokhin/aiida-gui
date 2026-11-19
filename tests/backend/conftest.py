@@ -19,4 +19,8 @@ def set_backend_server_settings(aiida_profile):
 def client(set_backend_server_settings):
     from aiida_gui.app.api import app
 
-    return TestClient(app)
+    # The app validates the `Host` header of every request, and the production
+    # defaults do not include the TestClient's `Host: testserver`. Send
+    # `Host: localhost` by default so the tests exercise the production
+    # configuration exactly as a browser would.
+    return TestClient(app, headers={"Host": "localhost"})

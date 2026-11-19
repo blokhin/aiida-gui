@@ -2,10 +2,21 @@ from .utils import get_node_summary_table, get_node_inputs, get_node_outputs
 from aiida import orm
 from fastapi import APIRouter, HTTPException
 import traceback
-from typing import List
+from typing import List, Optional
 from aiida.engine.processes import control
+from pydantic import BaseModel
 
 router = APIRouter()
+
+
+class Task(BaseModel):
+    """A task selected in the workflow editor, as sent by the frontend.
+
+    `pk` is omitted (null) for tasks that have not run yet.
+    """
+
+    name: str = ""
+    pk: Optional[int] = None
 
 
 @router.get("/api/task/{id}/{path:path}")
@@ -53,74 +64,59 @@ async def read_task(id: int, path: str):
 
 
 # General function to manage task actions
-async def manage_task_action(action: str, id: int, tasks: List[str]):
+async def manage_task_action(action: str, id: int, tasks: List[Task]):
 
     node = orm.load_node(id)
+    if not isinstance(node, orm.WorkChainNode):
+        raise HTTPException(status_code=400, detail=f"Node {id} is not a workchain")
     if node.is_finished:
-        msg = "Process is finished. Cannot pause tasks."
-        raise HTTPException(status_code=400, detail=msg)
-    if isinstance(node, orm.WorkChainNode):
-        print(f"Performing {action} action on tasks {tasks} in workchain {id}")
-        pks = [task.split("-")[-1] for task in tasks]
-        try:
-            if action == "pause":
-                print(f"Pausing tasks {tasks}")
-                try:
-                    control.pause_processes(
-                        pks,
-                        all_entries=None,
-                        timeout=5,
-                        wait=False,
-                    )
-                    msg = "Paused tasks"
-                except Exception as e:
-                    print(f"Pause processes: {pks} failed: {e}")
-            elif action == "play":
-                print(f"Playing tasks {tasks}")
-                try:
-                    control.pause_processes(
-                        pks,
-                        all_entries=None,
-                        timeout=5,
-                        wait=False,
-                    )
-                    msg = "Played tasks"
-                except Exception as e:
-                    print(f"Play processes: {pks} failed: {e}")
-            elif action == "kill":
-                print(f"Killing tasks {tasks}")
-                try:
-                    control.pause_processes(
-                        pks,
-                        all_entries=None,
-                        timeout=5,
-                        wait=False,
-                    )
-                    msg = "Killed tasks"
-                except Exception as e:
-                    print(f"Kill processes: {pks} failed: {e}")
-            else:
-                raise HTTPException(status_code=400, detail="Unsupported action")
+        raise HTTPException(status_code=400, detail="Process is finished.")
+    if not tasks:
+        raise HTTPException(status_code=400, detail="No tasks provided")
+    pks = [task.pk for task in tasks if task.pk is not None]
+    if not pks:
+        raise HTTPException(
+            status_code=400, detail="None of the selected tasks has a process"
+        )
+    try:
+        processes = [orm.load_node(pk) for pk in pks]
+    except Exception:
+        raise HTTPException(status_code=404, detail=f"Tasks {pks} not found")
+    for process in processes:
+        if not isinstance(process, orm.ProcessNode):
+            raise HTTPException(
+                status_code=400, detail=f"Node {process.pk} is not a process"
+            )
+    actions = {
+        "pause": (control.pause_processes, "Paused tasks"),
+        "play": (control.play_processes, "Played tasks"),
+        "kill": (control.kill_processes, "Killed tasks"),
+    }
+    if action not in actions:
+        raise HTTPException(status_code=400, detail="Unsupported action")
+    action_func, msg = actions[action]
+    try:
+        print(f"Performing '{action}' on processes {pks} in workchain {id}")
+        action_func(processes, timeout=5)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-            return {"message": msg}
-
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=str(e))
+    return {"message": msg}
 
 
 # Endpoint for pausing tasks in a process
 @router.post("/api/process/tasks/pause/{id}")
-async def pause_process_tasks(id: int, tasks: List[dict] = None):
-    return await manage_task_action("pause", id, tasks)
+async def pause_process_tasks(id: int, tasks: List[Task] = None):
+    return await manage_task_action("pause", id, tasks or [])
 
 
 # Endpoint for playing tasks in a process
 @router.post("/api/process/tasks/play/{id}")
-async def play_process_tasks(id: int, tasks: List[dict] = None):
-    return await manage_task_action("play", id, tasks)
+async def play_process_tasks(id: int, tasks: List[Task] = None):
+    return await manage_task_action("play", id, tasks or [])
 
 
 # Endpoint for killing tasks in a process
 @router.post("/api/process/tasks/kill/{id}")
-async def kill_workgraph_tasks(id: int, tasks: List[dict] = None):
-    return await manage_task_action("kill", id, tasks)
+async def kill_workgraph_tasks(id: int, tasks: List[Task] = None):
+    return await manage_task_action("kill", id, tasks or [])

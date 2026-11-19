@@ -79,7 +79,7 @@ async def read_group_members(
     id: int,
     skip: int = Query(0, ge=0),
     limit: int = Query(15, gt=0, le=500),
-    sortField: str = Query("pk"),
+    sortField: str = Query("pk", pattern="^(pk|ctime|node_type|label|description)$"),
     sortOrder: str = Query("desc", pattern="^(asc|desc)$"),
     filterModel: Optional[str] = Query(None),
 ):

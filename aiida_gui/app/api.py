@@ -1,5 +1,8 @@
+from urllib.parse import urlsplit
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from aiida.manage import manager
 from aiida_gui.app.workchain import router as workchain_router
 from aiida_gui.app.task import router as task_router
@@ -11,12 +14,19 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 import os
 
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.exception_handlers import http_exception_handler
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from pydantic_settings import BaseSettings
 from aiida_gui.app.plugin import get_plugins, mount_plugins
+
+# `Host` values accepted by default: the addresses the GUI is served from
+# (`cmd_web.py` and `main.py` bind to 127.0.0.1). `0.0.0.0` is accepted
+# because `curl http://0.0.0.0:8000` is a common local health check.
+# Note: only host names are matched (ports are ignored), and IPv6 literals
+# such as `[::1]` are not supported by the underlying middleware.
+DEFAULT_ALLOWED_HOSTS = ["localhost", "127.0.0.1", "0.0.0.0"]
 
 
 class BackendSettings(BaseSettings):
@@ -27,6 +37,12 @@ class BackendSettings(BaseSettings):
     """
 
     aiida_gui_profile: str = ""  # if empty aiida uses default profile
+    # Comma-separated list of origins that are allowed to make cross-origin
+    # requests to the backend, e.g. "http://localhost:3000". Empty (default)
+    # means the backend only accepts same-origin requests.
+    aiida_gui_allowed_origins: str = ""
+    # Comma-separated list of allowed `Host` header values.
+    aiida_gui_allowed_hosts: str = ",".join(DEFAULT_ALLOWED_HOSTS)
 
 
 backend_settings = BackendSettings()
@@ -34,13 +50,76 @@ backend_settings = BackendSettings()
 app = FastAPI()
 manager.get_manager().load_profile(backend_settings.aiida_gui_profile)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
-    allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
-)
+
+def _parse_allowed_origins(raw: str) -> list[str]:
+    """Parse the comma-separated `AIIDA_GUI_ALLOWED_ORIGINS` setting.
+
+    Entries are normalized to lowercase without a trailing slash. An empty
+    setting means no cross-origin requests are allowed.
+    """
+    return [item.strip().lower().rstrip("/") for item in raw.split(",") if item.strip()]
+
+
+def _parse_allowed_hosts(raw: str) -> list[str]:
+    """Parse the comma-separated `AIIDA_GUI_ALLOWED_HOSTS` setting.
+
+    An explicitly empty setting would make TrustedHostMiddleware reject every
+    request, so fall back to the local-only defaults instead.
+    """
+    hosts = [item.strip().lower() for item in raw.split(",") if item.strip()]
+    return hosts or list(DEFAULT_ALLOWED_HOSTS)
+
+
+_allowed_origins = _parse_allowed_origins(backend_settings.aiida_gui_allowed_origins)
+_allowed_hosts = _parse_allowed_hosts(backend_settings.aiida_gui_allowed_hosts)
+
+
+def _is_origin_allowed(request: Request, origin: str) -> bool:
+    """Return whether the `Origin` header is the request's own host or is explicitly allowed."""
+    if origin.lower() in _allowed_origins:
+        return True
+    try:
+        origin_netloc = urlsplit(origin).netloc.lower()
+    except ValueError:
+        return False
+    host = request.headers.get("host", "").lower()
+    return bool(origin_netloc) and origin_netloc == host
+
+
+# Only accept requests whose `Host` header is a known local address. This blocks
+# DNS-rebinding attacks where an attacker's domain is made to resolve to
+# 127.0.0.1 so that the victim's browser treats the API as same-origin.
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=_allowed_hosts)
+
+# Cross-origin requests are denied by default. The React frontend is served by
+# this same server (same origin) and therefore does not need CORS. If an
+# explicit allowlist is configured, only those origins are permitted - never
+# the wildcard `*`, and never together with credentials.
+if _allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_allowed_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Accept", "Content-Type"],
+    )
+
+
+@app.middleware("http")
+async def reject_cross_site_writes(request: Request, call_next):
+    """Reject cross-site state-changing requests (CSRF).
+
+    Browsers always attach an `Origin` header to cross-site
+    POST/PUT/PATCH/DELETE requests. If it is present and does not match this
+    host (or an explicitly allowed origin), the request is rejected.
+    Non-browser clients (curl, scripts, test clients) send no `Origin` header
+    and are unaffected.
+    """
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        origin = request.headers.get("origin")
+        if origin is not None and not _is_origin_allowed(request, origin):
+            return PlainTextResponse("Cross-origin request rejected", status_code=403)
+    return await call_next(request)
 
 
 @app.get("/api", tags=["root"])
@@ -63,11 +142,6 @@ app.include_router(datanode_router)
 app.include_router(groupnode_router)
 app.include_router(daemon_router)
 mount_plugins(app)
-
-
-@app.get("/debug")
-async def debug() -> dict:
-    return {"loaded_aiida_profile": manager.get_manager().get_profile()}
 
 
 @app.get("/backend-setting")
